@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kesir Dedektifi: Sonlu mu Sürekli mi?</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    
+    <!-- Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Comic Neue', cursive;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #fdf2f8;
+            touch-action: manipulation; /* Dokunmatik zoom'u engeller */
+        }
+        
+        /* MAGICAL SCENE BACKGROUND */
+        .magic-scene {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 0;
+            background: linear-gradient(135deg, #fbcfe8 0%, #f3e8ff 50%, #e0e7ff 100%);
+        }
+        
+        .decoration-star {
+            position: absolute;
+            clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+            background-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .magic-board {
+            background-color: #4c1d95; /* dark violet */
+            border: 8px solid #d8b4fe; /* light purple */
+            border-radius: 12px;
+            box-shadow: 0 5px 25px rgba(139, 92, 246, 0.5), inset 0 0 40px rgba(0,0,0,0.5);
+            color: #fdf4ff;
+            font-family: 'JetBrains Mono', monospace;
+            position: relative;
+            z-index: 10;
+        }
+        @media (min-width: 768px) {
+            .magic-board {
+                border-width: 12px;
+                border-radius: 20px;
+            }
+        }
+        
+        .magic-board::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+            pointer-events: none;
+        }
+
+        /* Heart Drop Animation */
+        @keyframes dropHeart {
+            0% { transform: translateY(-40px) scale(0.5); opacity: 0; }
+            50% { opacity: 1; }
+            80% { transform: translateY(0px) scale(1.2); }
+            100% { transform: translateY(0px) scale(1); opacity: 1; }
+        }
+        .heart-falling {
+            animation: dropHeart 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            z-index: 50; 
+        }
+
+        /* Character Animations */
+        .char-float {
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 4px; }
+        
+        /* Virutal Keyboard Press Effect */
+        .key-press:active {
+            transform: scale(0.95);
+            background-color: #e2e8f0;
+        }
+        
+        /* Shake Animation for Wrong Key */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        .shake-error {
+            animation: shake 0.3s ease-in-out;
+            border-color: #ef4444 !important;
+            background-color: #fee2e2 !important;
+        }
+    </style>
+</head>
+<body class="h-[100dvh] w-screen overflow-hidden select-none">
+
+    <div id="root" class="h-full w-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- ICONS & SVGs ---
+        const IconBase = ({ children, size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+        const Check = (props) => <IconBase {...props}><polyline points="20 6 9 17 4 12" /></IconBase>;
+        const X = (props) => <IconBase {...props}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></IconBase>;
+        const ArrowRight = (props) => <IconBase {...props}><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></IconBase>;
+        const Plus = (props) => <IconBase {...props}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></IconBase>;
+        const Calculator = (props) => (
+            <IconBase {...props}>
+                <rect width="16" height="20" x="4" y="2" rx="2" /><line x1="8" x2="16" y1="6" y2="6" /><line x1="16" x2="16" y1="14" y2="18" /><path d="M16 10h.01" /><path d="M12 10h.01" /><path d="M8 10h.01" /><path d="M12 14h.01" /><path d="M8 14h.01" /><path d="M12 18h.01" /><path d="M8 18h.01" />
+            </IconBase>
+        );
+        const Award = (props) => (<IconBase {...props}><circle cx="12" cy="8" r="7" /><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" /></IconBase>);
+        const Pause = (props) => (<IconBase {...props}><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></IconBase>);
+        const Play = (props) => (<IconBase {...props}><polygon points="5 3 19 12 5 21 5 3" /></IconBase>);
+
+        const HeartIcon = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="#ec4899" stroke="#be185d" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={className} style={{filter: 'drop-shadow(2px 2px 4px rgba(236,72,153,0.5))'}}>
+                <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+            </svg>
+        );
+
+        // Characters
+        const CuteCat = ({ style, className }) => (
+            <svg viewBox="0 0 200 200" style={style} className={className} xmlns="http://www.w3.org/2000/svg">
+                <g transform="translate(20, 20)">
+                    <path d="M30,80 L20,20 L70,50 Z" fill="#9333ea" />
+                    <path d="M130,80 L140,20 L90,50 Z" fill="#9333ea" />
+                    <circle cx="80" cy="90" r="60" fill="#a855f7" />
+                    <circle cx="55" cy="80" r="8" fill="#fff" />
+                    <circle cx="105" cy="80" r="8" fill="#fff" />
+                    <circle cx="55" cy="80" r="3" fill="#000" />
+                    <circle cx="105" cy="80" r="3" fill="#000" />
+                    <path d="M75,95 L80,100 L85,95" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                </g>
+            </svg>
+        );
+
+        const CuteBunny = ({ style, className }) => (
+            <svg viewBox="0 0 200 200" style={style} className={className} xmlns="http://www.w3.org/2000/svg">
+                <g transform="translate(20, 20)">
+                    <path d="M60,60 C40,0 20,0 40,60 Z" fill="#ec4899" />
+                    <path d="M100,60 C120,0 140,0 120,60 Z" fill="#ec4899" />
+                    <circle cx="80" cy="100" r="50" fill="#f472b6" />
+                    <circle cx="60" cy="90" r="6" fill="#000" />
+                    <circle cx="100" cy="90" r="6" fill="#000" />
+                    <path d="M75,105 C80,110 85,105 85,105" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" />
+                </g>
+            </svg>
+        );
+
+        // --- COMPONENTS ---
+        const FractionDisplay = ({ num, den, className = "" }) => (
+            <div className={`flex flex-col items-center justify-center font-bold text-lg md:text-xl ${className}`}>
+                <span className="border-b-2 border-current px-1 mb-[1px] leading-none">{num}</span>
+                <span className="leading-none">{den}</span>
+            </div>
+        );
+
+        const Button = ({ children, onClick, color = "blue", className = "", disabled=false }) => {
+            const colors = {
+                blue: "bg-sky-400 hover:bg-sky-500 text-white border-b-4 border-sky-600 active:border-b-0 active:translate-y-1",
+                green: "bg-emerald-400 hover:bg-emerald-500 text-white border-b-4 border-emerald-600 active:border-b-0 active:translate-y-1",
+                yellow: "bg-amber-400 hover:bg-amber-500 text-white border-b-4 border-amber-600 active:border-b-0 active:translate-y-1",
+                red: "bg-rose-400 hover:bg-rose-500 text-white border-b-4 border-rose-600 active:border-b-0 active:translate-y-1",
+                white: "bg-white text-gray-700 hover:bg-gray-50 border-b-4 border-gray-200 active:border-b-0 active:translate-y-1"
+            };
+            return (
+                <button 
+                    disabled={disabled}
+                    onClick={onClick} 
+                    className={`${colors[color]} ${disabled ? 'opacity-50 cursor-not-allowed border-none translate-y-1' : 'cursor-pointer'} px-3 md:px-4 py-2 rounded-xl font-bold transition-all flex items-center justify-center gap-1 md:gap-2 ${className}`}
+                >
+                    {children}
+                </button>
+            );
+        };
+
+        // --- LOGIC ---
+        const checkIsFinite = (den) => {
+            let temp = den;
+            while (temp % 2 === 0) temp /= 2;
+            while (temp % 5 === 0) temp /= 5;
+            return temp === 1;
+        };
+
+        const calculateDecimalString = (num, den) => {
+            const val = num / den;
+            if (checkIsFinite(den)) return val.toString().replace('.', ',');
+            let str = val.toFixed(4); 
+            return str.slice(0, 4).replace('.', ',') + '...';
+        };
+
+        // Gelişmiş, Adım Adım İşlem Motoru
+        const generateDivisionSteps = (num, den, type) => {
+            let steps = [];
+            let dividend = num;
+            let quotientStr = "";
+            let history = []; 
+            let maxSteps = 20; 
+            let stepCount = 0;
+            let decimalAdded = false;
+
+            // 0. BAŞLANGIÇ
+            steps.push({
+                dividendDisplay: num, divisorDisplay: den, quotientDisplay: "", history: [],
+                msg: `${num} ÷ ${den} işlemi için hazırım. Başlamak için butona bas!`,
+                requiresPlay: true 
+            });
+
+            // Eğer bölünen küçükse (ör: 1/2)
+            if (dividend < den) {
+                quotientStr = "0,";
+                decimalAdded = true;
+                
+                // Klavyeden giriş bekle
+                steps.push({
+                    dividendDisplay: num, divisorDisplay: den, quotientDisplay: "0,", history: [],
+                    msg: `${num} içinde ${den} yok. Önce "0" ve "," (virgül) tuşla.`,
+                    waitForInput: true
+                });
+                
+                // Kalp Düşüşü
+                steps.push({
+                    dividendDisplay: num, divisorDisplay: den, quotientDisplay: "0,", 
+                    history: [], isHeartDropping: true, isInitialDrop: true, 
+                    msg: "Sayıyı büyütmek için gökten sihirli bir kalp (sıfır) düşüyor!"
+                });
+
+                dividend = dividend * 10;
+
+                // Kalp yerleşti, sayı büyüdü (DURAKLAMA)
+                 steps.push({
+                    dividendDisplay: dividend, divisorDisplay: den, quotientDisplay: "0,", 
+                    history: [], isHeartDropping: false,
+                    msg: `Artık sayımız ${dividend}. Şimdi işlemi yapabiliriz.`,
+                    requiresPlay: true
+                });
+            }
+
+            while (stepCount < maxSteps) {
+                let digit = Math.floor(dividend / den);
+                let product = digit * den;
+                let remainder = dividend - product;
+
+                quotientStr += digit.toString();
+
+                // 1. KULLANICI RAKAM GİRER
+                steps.push({
+                    dividendDisplay: steps[steps.length-1].dividendDisplay, 
+                    divisorDisplay: den, quotientDisplay: quotientStr, history: [...history], 
+                    msg: `${dividend} içinde ${den}, ${digit} kere var. Klavyeden ${digit} rakamını tuşla.`,
+                    waitForInput: true
+                });
+
+                // 2. ÇARPIM GÖSTERİLİR
+                let historyWithProduct = [...history, { type: 'product', value: product }];
+                steps.push({
+                    dividendDisplay: steps[steps.length-1].dividendDisplay,
+                    divisorDisplay: den, quotientDisplay: quotientStr, history: historyWithProduct,
+                    msg: `${den} x ${digit} = ${product}. Çarpımı yazıyoruz.`
+                });
+
+                // 3. FARK GÖSTERİLİR VE SİSTEM DURUR
+                let historyWithRemainder = [...historyWithProduct, { type: 'remainder', value: remainder }];
+                steps.push({
+                    dividendDisplay: steps[steps.length-1].dividendDisplay,
+                    divisorDisplay: den, quotientDisplay: quotientStr, history: historyWithRemainder,
+                    msg: `Çıkarma yapıldı. Kalan ${remainder}. Devam etmek için DEVAM ET'e bas!`,
+                    requiresPlay: true // Sistem burada kullanıcı müdahalesi bekler
+                });
+                
+                history = historyWithRemainder; 
+
+                // KONTROL
+                if (remainder === 0) {
+                     steps.push({
+                        dividendDisplay: steps[steps.length-1].dividendDisplay,
+                        divisorDisplay: den, quotientDisplay: quotientStr, history: [...history],
+                        msg: "Kalan 0 oldu. İşlem bitti!",
+                        isFinished: true
+                    });
+                    break;
+                }
+
+                if (!decimalAdded) {
+                    quotientStr += ",";
+                    decimalAdded = true;
+                    
+                    // HATA DÜZELTMESİ: Kullanıcıdan virgül (,) tuşlaması istenmeli. Aksi takdirde oyun kilitlenir.
+                    steps.push({
+                        dividendDisplay: steps[steps.length-1].dividendDisplay,
+                        divisorDisplay: den, quotientDisplay: quotientStr, history: [...history],
+                        msg: "Kalan sayı bölene yetmiyor. Bölüme bir virgül (,) koymalıyız. Virgül tuşla!",
+                        waitForInput: true
+                    });
+                }
+
+                // 4. KALP DÜŞER
+                let historyWithHeartTarget = history.map(h => ({...h})); 
+                historyWithHeartTarget[historyWithHeartTarget.length - 1].wantsHeart = true;
+
+                steps.push({
+                    dividendDisplay: steps[steps.length-1].dividendDisplay,
+                    divisorDisplay: den, quotientDisplay: quotientStr, 
+                    history: historyWithHeartTarget, isHeartDropping: true,
+                    msg: "Kalan sayıya bölme yetmiyor, gökten bir kalp (sıfır) daha düşüyor."
+                });
+
+                dividend = remainder * 10;
+                
+                let historyWithZero = history.map(h => ({...h}));
+                historyWithZero[historyWithZero.length - 1].value = dividend; 
+                history = historyWithZero;
+
+                steps.push({
+                    dividendDisplay: steps[steps.length-1].dividendDisplay,
+                    divisorDisplay: den, quotientDisplay: quotientStr, 
+                    history: [...history], isHeartDropping: false,
+                    msg: `Yeni sayımız ${dividend}. İşleme devam!`
+                });
+
+                stepCount++;
+            }
+            
+            return steps;
+        };
+
+
+        // --- SCENE 2: UYGULA ---
+
+        const DivisionScene = ({ onNext, fractions, addFraction }) => {
+            const [activeCard, setActiveCard] = useState(null);
+            const [steps, setSteps] = useState([]);
+            const [stepIndex, setStepIndex] = useState(0);
+            const [isPlaying, setIsPlaying] = useState(false);
+            const [userQuotient, setUserQuotient] = useState("");
+            const [completed, setCompleted] = useState([]);
+            
+            const [manualNum, setManualNum] = useState("");
+            const [manualDen, setManualDen] = useState("");
+            const [wrongKey, setWrongKey] = useState(false); // Yanlış tuş efekti için
+
+            const boardRef = useRef(null);
+            const dropSound = useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3'));
+            const successSound = useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3'));
+
+            useEffect(() => {
+                if (boardRef.current) {
+                    boardRef.current.scrollTop = boardRef.current.scrollHeight;
+                }
+            }, [steps, stepIndex]);
+
+            const currentStep = steps[stepIndex] || {};
+            const isWaitingForInput = currentStep.waitForInput && userQuotient.length < (currentStep.quotientDisplay || "").length;
+
+            // Ana Animasyon Döngüsü
+            useEffect(() => {
+                let timer;
+                if (isPlaying) {
+                    // 1. Manuel DEVAM gerektiren adımda dur
+                    if (currentStep.requiresPlay) {
+                        setIsPlaying(false);
+                        return;
+                    }
+
+                    // 2. Klavye girişi beklenen adımda dur
+                    if (isWaitingForInput) {
+                        // isPlaying true kalır ama index artmaz. Klavye handler'ı bekleriz.
+                        return;
+                    }
+
+                    // 3. Normal akış
+                    if (currentStep.isHeartDropping) {
+                        dropSound.current.currentTime = 0;
+                        dropSound.current.play().catch(e => {});
+                    }
+
+                    if (stepIndex < steps.length - 1) {
+                        timer = setTimeout(() => {
+                            setStepIndex(prev => prev + 1);
+                        }, 1200); 
+                    } else {
+                         setIsPlaying(false);
+                         if (currentStep.isFinished && !completed.includes(activeCard.id)) {
+                             setCompleted(prev => [...prev, activeCard.id]);
+                             successSound.current.play().catch(e => {});
+                             confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                         }
+                    }
+                }
+                return () => clearTimeout(timer);
+            }, [isPlaying, stepIndex, steps, userQuotient, isWaitingForInput, activeCard, completed, currentStep]);
+
+            const startDivision = (card) => {
+                setActiveCard(card);
+                setUserQuotient("");
+                setCompleted(prev => prev.filter(id => id !== card.id));
+                
+                const calculatedSteps = generateDivisionSteps(card.num, card.den, card.type);
+                setSteps(calculatedSteps);
+                setStepIndex(0);
+                setIsPlaying(false); // Her yeni işlemde durarak başlar (İlk adım requiresPlay=true)
+            };
+
+            const togglePlay = () => {
+                if (currentStep.requiresPlay || stepIndex === 0) {
+                    setStepIndex(prev => prev + 1); // Manuel engeli aş
+                    setIsPlaying(true);
+                } else {
+                    setIsPlaying(!isPlaying);
+                }
+            };
+
+            // Sanal Klavye / Fiziksel Klavye Handler
+            const handleInput = (char) => {
+                if (!isWaitingForInput || !isPlaying) return;
+                
+                const targetQuotient = currentStep.quotientDisplay;
+                const nextCharIndex = userQuotient.length;
+                const correctChar = targetQuotient[nextCharIndex];
+
+                if (char === correctChar) {
+                    setUserQuotient(prev => prev + char);
+                    setWrongKey(false);
+                } else {
+                    setWrongKey(true);
+                    setTimeout(() => setWrongKey(false), 300); // 300ms sonra efekti kaldır
+                }
+            };
+
+            // Fiziksel klavye desteği
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (isWaitingForInput && isPlaying) {
+                        if (/^[0-9,.]$/.test(e.key)) {
+                            handleInput(e.key.replace('.', ','));
+                        }
+                    }
+                };
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [isWaitingForInput, isPlaying, userQuotient, currentStep]); // HATA DÜZELTMESİ: Eksik bağımlılıklar eklendi
+
+            const handleAddFraction = () => {
+                const n = parseInt(manualNum);
+                const d = parseInt(manualDen);
+                if (n > 0 && d > 0) {
+                    addFraction(n, d);
+                    setManualNum("");
+                    setManualDen("");
+                }
+            };
+
+            return (
+                <div className="h-full flex flex-col p-2 sm:p-4 relative">
+                    
+                    {/* SCENE BACKGROUND */}
+                    <div className="magic-scene">
+                        <div className="decoration-star w-8 h-8 top-10 left-1/4"></div>
+                        <div className="decoration-star w-12 h-12 top-1/3 right-1/4 opacity-50"></div>
+                        <div className="decoration-star w-6 h-6 bottom-1/4 left-10 opacity-80"></div>
+                    </div>
+
+                    <div className="absolute bottom-0 left-2 md:left-10 z-0 opacity-40 md:opacity-100 pointer-events-none">
+                         <CuteCat className="w-24 h-24 md:w-40 md:h-40 char-float" />
+                    </div>
+                    <div className="absolute bottom-0 right-2 md:right-10 z-0 opacity-40 md:opacity-100 pointer-events-none">
+                         <CuteBunny className="w-24 h-24 md:w-40 md:h-40 char-float" style={{animationDelay: '1.5s'}} />
+                    </div>
+
+                    <div className="max-w-7xl mx-auto w-full h-full flex flex-col relative z-10 pb-2">
+                        
+                        {/* Header */}
+                        <div className="flex justify-between items-center mb-2 md:mb-4 shrink-0">
+                            <div className="bg-white/90 backdrop-blur px-4 md:px-6 py-2 rounded-full shadow-lg border-l-4 md:border-l-8 border-pink-500">
+                                <h2 className="text-lg md:text-2xl font-bold text-pink-700 flex items-center gap-2">
+                                    <HeartIcon className="w-5 h-5 md:w-7 md:h-7" /> Kesir Büyücüsü
+                                </h2>
+                            </div>
+                            {completed.length >= 2 && (
+                                <Button onClick={onNext} color="yellow" className="animate-bounce-short shadow-xl border-2 border-white text-sm md:text-base px-3 py-1">
+                                    <span className="hidden sm:inline">Büyü Testine Geç</span> 
+                                    <span className="sm:hidden">Teste Geç</span> <ArrowRight size={18} />
+                                </Button>
+                            )}
+                        </div>
+
+                        {/* Main Layout */}
+                        <div className="flex flex-col md:flex-row gap-3 md:gap-6 h-full overflow-hidden shrink min-h-0">
+                            
+                            {/* Sidebar (Yatay Scroll Mobilde, Dikey Scroll Masaüstünde) */}
+                            <div className="w-full md:w-64 flex-shrink-0 bg-white/80 backdrop-blur rounded-2xl p-2 md:p-4 flex flex-col gap-2 shadow-xl border-2 md:border-4 border-white/60">
+                                <h3 className="hidden md:block text-center font-bold text-gray-500 mb-1 uppercase tracking-wider text-xs">Görev Kartları</h3>
+                                
+                                <div className="flex flex-row md:flex-col overflow-x-auto md:overflow-y-auto gap-2 pb-1 md:pb-0 flex-nowrap items-stretch min-h-[4rem] md:min-h-0">
+                                    {fractions.map(card => (
+                                        <div 
+                                            key={card.id}
+                                            onClick={() => startDivision(card)}
+                                            className={`
+                                                flex-shrink-0 p-2 md:p-3 rounded-xl cursor-pointer flex items-center justify-between border-2 transition-all 
+                                                w-20 md:w-auto
+                                                ${activeCard?.id === card.id ? 'bg-indigo-100 border-indigo-500 shadow-md ring-2 ring-indigo-200' : 'bg-white border-gray-200 hover:bg-gray-50'}
+                                            `}
+                                        >
+                                            <FractionDisplay num={card.num} den={card.den} className="text-sm md:text-lg mx-auto md:mx-0" />
+                                            <div className="hidden md:block">
+                                                {completed.includes(card.id) ? <Check className="text-green-600" size={20}/> : <ArrowRight className="text-gray-300" size={20}/>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                {/* Manual Input Area */}
+                                <div className="bg-indigo-50 p-2 rounded-xl border-2 border-indigo-100 flex flex-row md:flex-col gap-2 items-center flex-shrink-0 mt-auto md:mt-2">
+                                    <p className="hidden md:block text-[10px] font-bold text-indigo-400 mb-1 text-center w-full">KENDİ KESRİNİ EKLE</p>
+                                    <div className="flex gap-1 md:gap-2 w-full">
+                                        <input 
+                                            type="number" placeholder="Pay" value={manualNum} onChange={e => setManualNum(e.target.value)}
+                                            className="w-full p-1 md:p-2 text-sm rounded-lg border text-center outline-none focus:ring-2 focus:ring-indigo-300 min-w-[40px]"
+                                        />
+                                        <input 
+                                            type="number" placeholder="Payda" value={manualDen} onChange={e => setManualDen(e.target.value)}
+                                            className="w-full p-1 md:p-2 text-sm rounded-lg border text-center outline-none focus:ring-2 focus:ring-indigo-300 min-w-[40px]"
+                                        />
+                                    </div>
+                                    <Button onClick={handleAddFraction} color="blue" className="w-auto md:w-full text-xs py-1 px-2 md:px-4">
+                                        <Plus size={14} /> <span className="hidden md:inline">Ekle</span>
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {/* Main Board Area */}
+                            <div className="flex-1 flex flex-col relative overflow-hidden min-h-[50%]">
+                                {!activeCard ? (
+                                    <div className="h-full bg-white/80 backdrop-blur rounded-[1.5rem] border-2 md:border-4 border-white flex flex-col items-center justify-center text-gray-500 shadow-2xl p-4 text-center">
+                                        <div className="bg-white p-4 md:p-8 rounded-full mb-4 shadow-inner">
+                                            <HeartIcon className="w-12 h-12 md:w-20 md:h-20 text-pink-300" />
+                                        </div>
+                                        <p className="text-lg md:text-2xl font-bold">Bir kesir seç ve büyü yapmaya başla!</p>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col h-full gap-2 md:gap-4 shrink min-h-0">
+                                        
+                                        {/* Magic Board */}
+                                        <div ref={boardRef} className="magic-board flex-1 p-4 md:p-8 overflow-y-auto flex flex-col items-center transition-all relative">
+                                            
+                                            <div className="grid grid-cols-[1fr_auto_1fr] gap-x-4 md:gap-x-12 text-2xl md:text-5xl font-mono leading-relaxed w-full max-w-3xl mx-auto mt-2">
+                                                
+                                                {/* Left: Dividend & Subtractions */}
+                                                <div className="flex flex-col items-end relative">
+                                                    <div className="mb-2 font-bold relative flex items-center text-pink-100">
+                                                        {currentStep.dividendDisplay}
+                                                        {currentStep.isInitialDrop && currentStep.isHeartDropping && (
+                                                            <div className="absolute top-0 -right-8 md:-right-12 heart-falling">
+                                                                <HeartIcon className="w-8 h-8 md:w-10 md:h-10" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {currentStep.history && currentStep.history.map((item, idx) => (
+                                                        <div key={idx} className="flex flex-col items-end w-full text-purple-100">
+                                                            {item.type === 'product' && (
+                                                                <div className="border-b-2 md:border-b-4 border-purple-300/50 w-full max-w-[80px] md:max-w-[120px] text-right mb-1 md:mb-2 pb-1 relative">
+                                                                    <span className="absolute left-0 text-xl md:text-3xl opacity-50">-</span>
+                                                                    {item.value}
+                                                                </div>
+                                                            )}
+                                                            {item.type === 'remainder' && (
+                                                                <div className="relative font-bold pr-1 mb-1 md:mb-2 text-pink-200">
+                                                                    {item.value}
+                                                                    {item.wantsHeart && currentStep.isHeartDropping && !currentStep.isInitialDrop && (
+                                                                        <div className="absolute top-0 -right-8 md:-right-12 heart-falling">
+                                                                            <HeartIcon className="w-8 h-8 md:w-10 md:h-10" />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+
+                                                {/* Center: Lines */}
+                                                <div className="w-1 md:w-1.5 bg-purple-300/90 h-full min-h-[150px] md:min-h-[300px] mt-1 md:mt-2 relative rounded-full shadow-[0_0_10px_rgba(216,180,254,0.8)]">
+                                                    <div className="absolute top-10 md:top-20 w-24 md:w-48 h-1 md:h-1.5 bg-purple-300/90 left-0 rounded-full shadow-[0_0_10px_rgba(216,180,254,0.8)]"></div>
+                                                </div>
+
+                                                {/* Right: Divisor & Quotient */}
+                                                <div className="flex flex-col text-pink-100">
+                                                    <div className="mb-4 md:mb-8 pl-2 md:pl-4 font-bold">{currentStep.divisorDisplay}</div>
+                                                    
+                                                    <div className="mt-6 md:mt-8 pl-2 md:pl-4 flex flex-wrap gap-1 items-center">
+                                                        {userQuotient.split('').map((char, i) => (
+                                                            <span key={i} className="text-yellow-300 font-bold bg-white/10 px-1 md:px-2 rounded">{char}</span>
+                                                        ))}
+                                                        
+                                                        {/* Cursor Block */}
+                                                        {isWaitingForInput && isPlaying && (
+                                                            <div className="w-4 h-6 md:w-8 md:h-10 border-b-2 md:border-b-4 border-yellow-300 cursor-blink bg-yellow-300/20 rounded ml-1"></div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Status Box */}
+                                            <div className="mt-auto pt-4 md:pt-8 text-center w-full z-20 sticky bottom-0 pointer-events-none">
+                                                <p className="text-purple-50 text-sm md:text-xl font-sans bg-purple-900/80 py-2 px-4 rounded-xl inline-block backdrop-blur border border-purple-400/50 shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+                                                    {currentStep.msg}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Dynamic Control Panel (Numpad or Play Button) */}
+                                        <div className="shrink-0 bg-white/90 backdrop-blur p-2 md:p-4 rounded-2xl border-2 md:border-4 border-white shadow-xl flex flex-col items-center justify-center relative z-20 min-h-[80px]">
+                                            
+                                            {currentStep.isFinished ? (
+                                                <div className="flex items-center gap-2 text-green-600 font-bold text-lg md:text-2xl bg-green-100 px-6 py-3 rounded-xl animate-[fadeIn_0.5s]">
+                                                    <Check className="w-8 h-8"/> İşlem Tamamlandı!
+                                                </div>
+                                            ) : isWaitingForInput && isPlaying ? (
+                                                /* VIRTUAL NUMPAD */
+                                                <div className="w-full max-w-sm flex justify-center gap-1 md:gap-2 animate-[fadeIn_0.2s]">
+                                                    {[1,2,3,4,5,6,7,8,9,0,','].map(key => (
+                                                        <button 
+                                                            key={key} 
+                                                            onClick={() => handleInput(key.toString())} 
+                                                            className={`
+                                                                flex-1 aspect-square md:aspect-auto md:h-12 bg-indigo-50 border-2 border-indigo-200 rounded-lg md:rounded-xl font-bold text-indigo-800 text-lg md:text-xl shadow-sm
+                                                                key-press transition-transform
+                                                                ${wrongKey ? 'shake-error' : ''}
+                                                            `}
+                                                        >
+                                                            {key}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                /* PLAY / CONTINUE BUTTON */
+                                                <Button 
+                                                    onClick={togglePlay} 
+                                                    color={isPlaying ? "red" : "green"} 
+                                                    className="w-48 h-12 md:h-16 text-lg md:text-2xl shadow-lg border-b-4 border-black/20 animate-pulse"
+                                                >
+                                                    {isPlaying ? (
+                                                        <><Pause className="w-6 h-6 md:w-8 md:h-8"/> DURAKLAT</>
+                                                    ) : (
+                                                        stepIndex === 0 ? <><Play className="w-6 h-6 md:w-8 md:h-8"/> BAŞLA</> : <><Play className="w-6 h-6 md:w-8 md:h-8"/> DEVAM ET</>
+                                                    )}
+                                                </Button>
+                                            )}
+                                            
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ClassificationScene = ({ onReset, fractions }) => {
+             const [cardStates, setCardStates] = useState([]);
+             const [selectedCardId, setSelectedCardId] = useState(null);
+             const [message, setMessage] = useState("Kartı seç, sonra doğru kutuya tıkla!");
+             const [finished, setFinished] = useState(false);
+
+             useEffect(() => {
+                 setCardStates(fractions.map(d => ({ ...d, location: 'deck' })));
+             }, [fractions]);
+
+            const deckCards = cardStates.filter(c => c.location === 'deck');
+            const finiteCards = cardStates.filter(c => c.location === 'finite');
+            const repeatingCards = cardStates.filter(c => c.location === 'repeating');
+
+            useEffect(() => {
+                if (deckCards.length === 0 && cardStates.length > 0 && !finished) {
+                    setFinished(true);
+                    confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 } });
+                    setMessage("Tebrikler! Tüm kesirleri doğru sınıflandırdın.");
+                    new Audio('https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3').play().catch(() => {});
+                }
+            }, [cardStates]);
+
+            const handleCardSelect = (id) => {
+                if (finished) return;
+                setSelectedCardId(id === selectedCardId ? null : id); 
+                setMessage("Şimdi uygun kutuya tıkla.");
+            };
+
+            const handleBoxClick = (targetBoxType) => {
+                if (!selectedCardId) {
+                    setMessage("Önce aşağıdaki listeden bir kart seçmelisin!");
+                    return;
+                }
+                const card = cardStates.find(c => c.id === selectedCardId);
+                const isCorrect = card.type === targetBoxType;
+
+                if (isCorrect) {
+                    setCardStates(prev => prev.map(c => c.id === selectedCardId ? { ...c, location: targetBoxType } : c));
+                    setSelectedCardId(null);
+                    setMessage("Doğru! Harika gidiyorsun.");
+                    new Audio('https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3').play().catch(() => {});
+                } else {
+                    setMessage("Hata! Paydayı kontrol et (2 ve 5 kuralı).");
+                    new Audio('https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3').play().catch(() => {});
+                }
+            };
+
+            const DraggableCard = ({ data, inBox = false }) => (
+                <div 
+                    onClick={() => !inBox && handleCardSelect(data.id)}
+                    className={`
+                        relative bg-white rounded-lg p-1 md:p-2 m-1 shadow-md flex items-center justify-between gap-1 md:gap-2 border-2 transition-all duration-200 select-none
+                        ${inBox ? 'w-full border-transparent mb-1' : 'w-20 md:w-28 cursor-pointer flex-col py-2 md:py-4'}
+                        ${selectedCardId === data.id ? 'border-indigo-500 ring-2 md:ring-4 ring-indigo-200 transform scale-105 z-10' : 'border-gray-200 hover:border-indigo-300'}
+                    `}
+                >
+                    <FractionDisplay num={data.num} den={data.den} className={inBox ? "text-xs md:text-base" : "text-sm md:text-xl"} />
+                    <span className="font-mono text-gray-500 text-[9px] md:text-xs bg-gray-100 px-1 rounded">{data.decimal}</span>
+                </div>
+            );
+
+            return (
+                <div className="h-full flex flex-col p-2 sm:p-4 relative">
+                     <div className="magic-scene">
+                        <div className="decoration-star bg-yellow-300 w-16 h-16 top-10 left-10 opacity-70"></div>
+                        <div className="decoration-star bg-pink-300 w-20 h-20 top-40 right-20 opacity-70"></div>
+                        <div className="decoration-star bg-purple-200 w-24 h-24 bottom-10 left-1/3 opacity-70"></div>
+                    </div>
+
+                    <div className="absolute bottom-0 left-2 md:left-10 z-0 opacity-40 md:opacity-100 pointer-events-none">
+                         <CuteCat className="w-24 h-24 md:w-32 md:h-32 char-float" />
+                    </div>
+                    <div className="absolute bottom-0 right-2 md:right-10 z-0 opacity-40 md:opacity-100 pointer-events-none">
+                         <CuteBunny className="w-24 h-24 md:w-32 md:h-32 char-float" style={{animationDelay: '1.5s'}} />
+                    </div>
+
+                    <div className="max-w-6xl mx-auto w-full h-full flex flex-col bg-white/80 backdrop-blur rounded-[1.5rem] md:rounded-[2rem] shadow-2xl overflow-hidden border-2 md:border-4 border-white/60 relative z-10">
+                        
+                        {finished && (
+                            <div className="absolute inset-0 bg-white/95 z-30 flex flex-col items-center justify-center animate-[fadeIn_0.5s] p-4 text-center">
+                                <HeartIcon className="text-pink-500 mb-4 animate-bounce w-16 h-16 md:w-24 md:h-24" />
+                                <h1 className="text-3xl md:text-5xl font-bold text-pink-700 mb-2 md:mb-4">BÜYÜLÜ BİR İŞ!</h1>
+                                <p className="text-lg md:text-2xl text-purple-600 mb-6 md:mb-8">Kesir Büyücüsü Rozetini Kazandın.</p>
+                                <Button onClick={onReset} color="green" className="px-6 md:px-10 py-3 md:py-5 text-lg md:text-2xl shadow-xl">Başa Dön</Button>
+                            </div>
+                        )}
+
+                        <div className="flex flex-col sm:flex-row justify-between items-center p-3 md:p-6 bg-pink-50 border-b-2 border-pink-100 gap-2 shrink-0">
+                            <div className="bg-white px-4 md:px-6 py-2 md:py-3 rounded-full shadow-md border-l-4 border-pink-500">
+                                <h2 className="text-base md:text-xl font-bold text-pink-700 flex items-center gap-2">
+                                    <HeartIcon className="w-5 h-5 md:w-6 md:h-6" /> Büyü Testi
+                                </h2>
+                            </div>
+                            <div className="bg-purple-100 text-purple-700 px-3 md:px-4 py-1 md:py-2 rounded-lg font-bold text-xs md:text-sm shadow-sm border border-purple-200 text-center w-full sm:w-auto">
+                                {message}
+                            </div>
+                        </div>
+
+                        <div className="flex-1 flex flex-col gap-3 md:gap-6 p-3 md:p-6 min-h-0 overflow-hidden">
+                            <div className="flex-1 flex flex-col sm:flex-row gap-3 md:gap-6 overflow-hidden">
+                                <div 
+                                    onClick={() => handleBoxClick('finite')}
+                                    className="flex-1 bg-gradient-to-b from-blue-50 to-pink-50 rounded-xl md:rounded-3xl border-2 md:border-4 border-pink-300 border-dashed hover:border-pink-400 hover:bg-pink-100 transition-all p-2 md:p-4 flex flex-col relative shadow-inner cursor-pointer min-h-0"
+                                >
+                                    <h3 className="text-center font-bold text-pink-800 mb-2 md:mb-4 uppercase tracking-wider bg-white/80 rounded-lg md:rounded-xl py-1 md:py-2 shadow-sm text-sm md:text-base">
+                                        Sonlu Büyü
+                                        <span className="block text-[10px] md:text-xs text-pink-600 mt-1 font-normal lowercase">(Payda sadece 2 veya 5)</span>
+                                    </h3>
+                                    <div className="flex-1 overflow-y-auto pr-1">
+                                        {finiteCards.map(c => <DraggableCard key={c.id} data={c} inBox={true} />)}
+                                    </div>
+                                </div>
+
+                                <div 
+                                    onClick={() => handleBoxClick('repeating')}
+                                    className="flex-1 bg-gradient-to-b from-purple-50 to-indigo-50 rounded-xl md:rounded-3xl border-2 md:border-4 border-purple-300 border-dashed hover:border-purple-400 hover:bg-purple-100 transition-all p-2 md:p-4 flex flex-col relative shadow-inner cursor-pointer min-h-0"
+                                >
+                                    <h3 className="text-center font-bold text-purple-800 mb-2 md:mb-4 uppercase tracking-wider bg-white/80 rounded-lg md:rounded-xl py-1 md:py-2 shadow-sm text-sm md:text-base">
+                                        Sürekli Büyü
+                                        <span className="block text-[10px] md:text-xs text-purple-600 mt-1 font-normal lowercase">(Paydada 3, 7, 11... var)</span>
+                                    </h3>
+                                    <div className="flex-1 overflow-y-auto pr-1">
+                                        {repeatingCards.map(c => <DraggableCard key={c.id} data={c} inBox={true} />)}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="h-24 md:h-36 shrink-0 bg-gray-50 rounded-xl md:rounded-2xl border-t-2 md:border-t-4 border-gray-200 p-2 md:p-4 flex items-center justify-start sm:justify-center gap-2 md:gap-4 overflow-x-auto shadow-inner w-full">
+                                {deckCards.length === 0 && !finished ? (
+                                    <span className="text-gray-400 font-bold text-sm md:text-lg w-full text-center">Tüm kartlar yerleşti!</span>
+                                ) : (
+                                    deckCards.map(c => <DraggableCard key={c.id} data={c} />)
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const initialFractions = [
+            { id: 1, num: 1, den: 2, type: 'finite', decimal: '0,5' },
+            { id: 2, num: 4, den: 3, type: 'repeating', decimal: '1,3...' },
+            { id: 3, num: 2, den: 9, type: 'repeating', decimal: '0,2...' },
+            { id: 4, num: 5, den: 9, type: 'repeating', decimal: '0,5...' },
+            { id: 5, num: 11, den: 4, type: 'finite', decimal: '2,75' },
+            { id: 6, num: 10, den: 6, type: 'repeating', decimal: '1,6...' }
+        ];
+
+        const App = () => {
+            const [scene, setScene] = useState('division');
+            const [fractions, setFractions] = useState(initialFractions);
+
+            const addFraction = (num, den) => {
+                const isFinite = checkIsFinite(den);
+                const decimal = calculateDecimalString(num, den);
+                const newCard = {
+                    id: Date.now(),
+                    num,
+                    den,
+                    type: isFinite ? 'finite' : 'repeating',
+                    decimal
+                };
+                setFractions([...fractions, newCard]);
+            };
+
+            return (
+                <div className="h-full w-full">
+                    {scene === 'division' && <DivisionScene onNext={() => setScene('classification')} fractions={fractions} addFraction={addFraction} />}
+                    {scene === 'classification' && <ClassificationScene onReset={() => setScene('division')} fractions={fractions} />}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
